@@ -2,6 +2,8 @@
 
 Autonomous Drone Controller with Obstacle Avoidance
 This controller manages a quadcopter drone in a Webots environment. It features an intelligent path-planning system that analyzes environmental obstacles to determine an optimal flight altitude and generates detour waypoints to avoid tall structures.
+<img width="4784" height="1584" alt="image" src="https://github.com/user-attachments/assets/d0b84f66-c41a-4012-8777-5a4c9e66c5e1" />
+
 
 1. System Features
 - Intelligent Altitude Selection: Calculates the average height of all obstacles to set a "Cruise Altitude," ensuring efficient flight without simply flying over the tallest object.
