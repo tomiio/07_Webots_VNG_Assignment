@@ -23,35 +23,38 @@
 #define MAX_OBSTACLES 50
 #define MAX_WAYPOINTS 10
 
-// Tuning
+// Tuning for altitude, roll, pitch, yaw and position controller
 const double k_vertical_thrust = 68.5;  
 const double k_vertical_offset = 0.6;   
 const double k_vertical_p = 3.0;        
+
 const double k_roll_p = 50.0;           
-const double k_pitch_p = 30.0;          
+const double k_pitch_p = 30.0;      
+
 const double k_yaw_p = 2.0;             
 const double k_pos_p = 2.0;        
 const double k_pos_d = 5.0; 
 
 const double TARGET_TOLERANCE = 0.5;   
 const double WAIT_TIME = 5.0;          
-const double OBSTACLE_SAFETY_MARGIN = 3.0; 
+const double OBSTACLE_SAFETY_MARGIN = 3.0; // Avoidance margin in meters
 const double LANDING_SPEED = 0.005; // Meters per step (Controls soft landing speed)
 
-// --- Data Structures ---
+// --- Data Structures for Obstacles ---
 typedef struct {
   double x, y, z, w, d, h;
   char name[64];
 } Obstacle;
 
+// --- Data Structures for Waypoints ---
 typedef struct {
   double x, y, z;
 } Point;
 
 typedef enum {
-  STATE_TAKEOFF,
-  STATE_FLYING,      
-  STATE_HOVER_WAIT,  
+  STATE_TAKEOFF,       // Initial takeoff
+  STATE_FLYING,        // Flying to target
+  STATE_HOVER_WAIT,    // Hover and wait before landing
   STATE_LANDING,       // Soft landing at destination
   STATE_LANDED_WAIT,   // Wait 5s on ground
   STATE_RETURN_TAKEOFF,// Take off again
@@ -68,8 +71,11 @@ Point waypoints[MAX_WAYPOINTS];
 int waypoint_count = 0;
 int current_wp_index = 0;
 
-// --- Helper Functions ---
+double cruise_altitude = 12.0; // Global variable to hold the calculated average obstacles height
 
+// --------------- Helper Functions ---------------
+
+// This function loads obstacles from a CSV file
 void load_obstacles(const char *filename) {
   FILE *fp = fopen(filename, "r");
   if (!fp) return;
@@ -84,10 +90,12 @@ void load_obstacles(const char *filename) {
   fclose(fp);
 }
 
+// Calculate 2D distance
 double dist2d(double x1, double y1, double x2, double y2) {
     return sqrt(pow(x2-x1, 2) + pow(y2-y1, 2));
 }
 
+// Check if line segment intersects with obstacle (cylinder approximation)
 int check_intersection(Point start, Point end, Obstacle o, double clearance) {
     if (start.z > o.h + 0.5) return 0; 
     double l2 = pow(end.x - start.x, 2) + pow(end.y - start.y, 2);
@@ -102,15 +110,24 @@ int check_intersection(Point start, Point end, Obstacle o, double clearance) {
     return 0;
 }
 
+// Plan flight path with obstacle avoidance
 void plan_flight_path(Point start, Point target) {
     // 1. Calculate Average Obstacle Height
     double total_h = 0;
     for(int i=0; i<obstacle_count; i++) total_h += obstacles[i].h;
     double avg_h = (obstacle_count > 0) ? total_h / obstacle_count : 5.0;
     
-    double fly_z = avg_h + 4.0; // Cruise Altitude
-    if (fly_z < target.z) fly_z = target.z;
-    if (fly_z < start.z) fly_z = start.z; // Don't fly lower than current pos
+    // 2. Set Cruise Altitude (The logic you requested)
+    cruise_altitude = avg_h + 4.0; // Margin 4.0 meters above average obstacle height
+    
+    // Safety check: Don't fly lower than destination
+    if (cruise_altitude < target.z) cruise_altitude = target.z;
+    if (cruise_altitude < start.z) cruise_altitude = start.z;
+    
+    printf("Calculated Safe Cruise Altitude: %.2f meters (Avg Obs Height: %.2f)\n", cruise_altitude, avg_h);
+
+    // Set Z for path planning
+    double fly_z = cruise_altitude;
 
     printf("Planning Path: %.2f,%.2f -> %.2f,%.2f (Alt: %.2f)\n", start.x, start.y, target.x, target.y, fly_z);
 
@@ -135,7 +152,7 @@ void plan_flight_path(Point start, Point target) {
     }
 
     if (hit_obs) {
-        printf(">> Avoiding %s. Generating Curve.\n", hit_obs->name);
+        printf("-> Avoiding %s. Generating Curve.\n", hit_obs->name);
         double dx = target.x - start.x;
         double dy = target.y - start.y;
         double cross_product = dx * (hit_obs->y - start.y) - dy * (hit_obs->x - start.x);
@@ -160,13 +177,15 @@ void plan_flight_path(Point start, Point target) {
     }
 }
 
-// --- Main ---
+// ------------------ Main ------------------
 
 int main(int argc, char **argv) {
   wb_robot_init();
   int timestep = (int)wb_robot_get_basic_time_step();
 
   // Devices
+  WbDeviceTag camera = wb_robot_get_device("camera");
+  wb_camera_enable(camera, timestep);
   WbDeviceTag imu = wb_robot_get_device("inertial unit");
   wb_inertial_unit_enable(imu, timestep);
   WbDeviceTag gps = wb_robot_get_device("gps");
@@ -190,7 +209,7 @@ int main(int argc, char **argv) {
 
   load_obstacles("../../data/obstacles.csv");
 
-  // Wait for Sensors
+  // Wait one second.
   while (wb_robot_step(timestep) != -1) {
     if (wb_robot_get_time() > 1.0) break;
   }
@@ -214,7 +233,7 @@ int main(int argc, char **argv) {
   double target_altitude = home_pt.z;
   double target_x = home_pt.x; 
   double target_y = home_pt.y;
-  double target_yaw = home_yaw; // Variable to store where we want to look
+  double target_yaw = home_yaw; // Variable to store where the heading should be
   
   double wait_start_time = 0.0;
   
@@ -222,7 +241,7 @@ int main(int argc, char **argv) {
   double prev_y = home_pt.y;
   double prev_time = wb_robot_get_time();
 
-  printf("Mission: Home -> Dest -> Wait -> Home\n");
+  printf("Mission: Deliver to position (%.2f, %.2f, %.2f)\n", dest_pt.x, dest_pt.y, dest_pt.z);
 
   while (wb_robot_step(timestep) != -1) {
     const double time = wb_robot_get_time();
@@ -242,14 +261,14 @@ int main(int argc, char **argv) {
     double vel_y = (y - prev_y) / dt;
     prev_x = x; prev_y = y; prev_time = time;
 
-    double roll_dist = 0, pitch_dist = 0, yaw_dist = 0;
+    double roll_disturbance = 0, pitch_disturbance = 0, yaw_disturbance = 0;
 
     switch (state) {
       
-      // === OUTBOUND LEG ===
       case STATE_TAKEOFF:
-        target_altitude = (waypoint_count > 0) ? waypoints[0].z : 12.0;
-        target_x = x; target_y = y; // Lock X/Y
+        target_altitude = cruise_altitude;
+        target_x = x; // Lock X when taking off
+        target_y = y; // Lock Y when taking off
         
         if (altitude > target_altitude - 0.5) {
            printf("Takeoff Complete. Flying to Destination...\n");
@@ -286,8 +305,7 @@ int main(int argc, char **argv) {
         
         if (time - wait_start_time > 2.0) {
            printf("Initiating Soft Landing...\n");
-           // Initialize target altitude for landing to current altitude
-           // to prevent sudden drops
+           // Initialize target altitude for landing to current altitude to prevent sudden drops
            target_altitude = altitude; 
            state = STATE_LANDING;
         }
@@ -297,7 +315,7 @@ int main(int argc, char **argv) {
         target_x = dest_pt.x;
         target_y = dest_pt.y;
         
-        // ** SOFT LANDING LOGIC **
+        // SOFT LANDING
         // Slowly decrease target altitude until we reach destination_z
         if (target_altitude > dest_pt.z) {
             target_altitude -= LANDING_SPEED; 
@@ -316,10 +334,7 @@ int main(int argc, char **argv) {
         break;
 
       case STATE_LANDED_WAIT:
-         target_altitude = dest_pt.z; // Stay on ground
-         // Cut motors completely for realism?
-         // wb_motor_set_velocity(..., 0); 
-         // For simulation stability, we keep them spinning at idle or 0 target_alt
+         target_altitude = dest_pt.z; // Stay on desitination z
          
          if (time - wait_start_time > WAIT_TIME) {
              printf("Wait Complete. Computing Return Path...\n");
@@ -333,10 +348,11 @@ int main(int argc, char **argv) {
          }
          break;
 
-      // === RETURN LEG ===
+      // === RETURN ===
       case STATE_RETURN_TAKEOFF:
-         target_altitude = (waypoint_count > 0) ? waypoints[0].z : 12.0;
-         target_x = x; target_y = y;
+         target_altitude = cruise_altitude;
+         target_x = x; // Lock X when taking off
+         target_y = y; // Lock Y when taking off
          
          if (altitude > target_altitude - 0.5) {
              printf("Return Takeoff Complete. Flying Home...\n");
@@ -344,6 +360,7 @@ int main(int argc, char **argv) {
          }
          break;
 
+      // Return Flying
       case STATE_RETURN_FLYING:
          if (current_wp_index < waypoint_count) {
             Point wp = waypoints[current_wp_index];
@@ -358,16 +375,17 @@ int main(int argc, char **argv) {
             if (sqrt(dx*dx + dy*dy) < TARGET_TOLERANCE) current_wp_index++;
          } else {
             printf("Arrived Home. Aligning Heading and Landing...\n");
-            target_yaw = home_yaw; // Restore initial pose
+            target_yaw = home_yaw;      // Restore initial pose
             target_altitude = altitude; // Prepare for soft landing
             state = STATE_FINAL_LANDING;
          }
          break;
 
+      // Final Landing at Home
       case STATE_FINAL_LANDING:
          target_x = home_pt.x;
          target_y = home_pt.y;
-         target_yaw = home_yaw; // Keep facing initial direction
+         target_yaw = home_yaw;         // Keep heading to initial direction
 
          // Soft Landing again
          if (target_altitude > home_pt.z) {
@@ -380,6 +398,7 @@ int main(int argc, char **argv) {
          }
          break;
 
+      // Set velocity to 0 for all motors
       case STATE_FINISHED:
         wb_motor_set_velocity(motors[0], 0);
         wb_motor_set_velocity(motors[1], 0);
@@ -389,14 +408,16 @@ int main(int argc, char **argv) {
         continue;
     }
 
-    // --- Heading Controller ---
+    // ------ Heading P Controller ------
+    // This keeps the drone oriented towards the target yaw (heading to target point)
     double yaw_err = target_yaw - yaw;
     while(yaw_err > M_PI) yaw_err -= 2*M_PI;
     while(yaw_err < -M_PI) yaw_err += 2*M_PI;
-    yaw_dist = k_yaw_p * yaw_err;
-    yaw_dist = CLAMP(yaw_dist, -1.0, 1.0);
+    yaw_disturbance = k_yaw_p * yaw_err;
+    yaw_disturbance = CLAMP(yaw_disturbance, -1.0, 1.0);
 
-    // --- Position Controller ---
+    // ------ Position PD Controller ------
+    // This keep the drone on track to the target position, and also hover when reach target
     double error_x = target_x - x;
     double error_y = target_y - y;
     double body_fwd_err = cos(yaw) * error_x + sin(yaw) * error_y;
@@ -404,22 +425,23 @@ int main(int argc, char **argv) {
     double body_fwd_vel = cos(yaw) * vel_x + sin(yaw) * vel_y;
     double body_side_vel = -sin(yaw) * vel_x + cos(yaw) * vel_y;
 
-    pitch_dist = -(k_pos_p * body_fwd_err) + (k_pos_d * body_fwd_vel);
-    roll_dist = (k_pos_p * body_side_err) - (k_pos_d * body_side_vel);
+    pitch_disturbance = -(k_pos_p * body_fwd_err) + (k_pos_d * body_fwd_vel);
+    roll_disturbance = (k_pos_p * body_side_err) - (k_pos_d * body_side_vel);
     
-    pitch_dist = CLAMP(pitch_dist, -2.0, 2.0);
-    roll_dist = CLAMP(roll_dist, -2.0, 2.0);
+    pitch_disturbance = CLAMP(pitch_disturbance, -2.0, 2.0);
+    roll_disturbance = CLAMP(roll_disturbance, -2.0, 2.0);
 
-    // --- Actuation ---
+    // ------ Actuation ------
+    // This remains mostly unchanged compared to the original low-level controller of Webots sample
     const bool led = ((int)time) % 2;
     wb_led_set(front_left_led, led);
     wb_led_set(front_right_led, !led);
     wb_motor_set_position(camera_roll_motor, -0.115 * roll_velocity);
     wb_motor_set_position(camera_pitch_motor, -0.1 * pitch_velocity);
 
-    double roll_in = k_roll_p * CLAMP(roll, -1.0, 1.0) + roll_velocity + roll_dist;
-    double pitch_in = k_pitch_p * CLAMP(pitch, -1.0, 1.0) + pitch_velocity + pitch_dist;
-    double yaw_in = yaw_dist;
+    double roll_in = k_roll_p * CLAMP(roll, -1.0, 1.0) + roll_velocity + roll_disturbance;
+    double pitch_in = k_pitch_p * CLAMP(pitch, -1.0, 1.0) + pitch_velocity + pitch_disturbance;
+    double yaw_in = yaw_disturbance;
     double alt_err = CLAMP(target_altitude - altitude + k_vertical_offset, -1.0, 1.0);
     double vert_in = k_vertical_p * pow(alt_err, 3.0);
 
