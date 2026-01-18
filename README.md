@@ -1,8 +1,22 @@
+IMPORTANT NOTE!:
+Eventhough I submitted this repo link, but the video files was large and everything was moved to this drive instead: https://drive.google.com/drive/folders/1c03Tf3Qp-t65CH9fiYV2eRgCC-F4jFGt?usp=sharing
+
+1.
+"To counteract the high-frequency sensor noise, I implemented a Simple Moving Average (SMA) filter using a circular buffer of size 15. This acts as a low-pass filter, attenuating the random noise spikes to reveal the underlying trend.
+2.
+In normal case (with more time, I would use ziegler nicol method )
+but for this situation with limited timing resources, to handle this:
+Proportional (P): I reduced the P gain (from 3.0 to 2.0). A lower P gain makes the drone less reactive to the delayed signal, preventing it from chasing 'ghost' data.
+3.
+The lag in intial P vertical tunning was made by small changes in increasing Kp
+
+4. I also created a full delivery system, with path generation, path tracking and return home functionality. you can check it out (you can choose any destination you want by adjusting destination point in dest_pt (for the given assignment, I set this to (0.0, 0.0, 0.2)
+
 <img width="1697" height="809" alt="image" src="https://github.com/user-attachments/assets/28154a75-5945-4894-9383-6a0fa9808d7c" />
 
 Autonomous Drone Controller with Obstacle Avoidance
 This controller manages a quadcopter drone in a Webots environment. It features an intelligent path-planning system that analyzes environmental obstacles to determine an optimal flight altitude and generates detour waypoints to avoid tall structures.
-<img width="4784" height="1584" alt="image" src="https://github.com/user-attachments/assets/d0b84f66-c41a-4012-8777-5a4c9e66c5e1" />
+<img width="5564" height="3144" alt="image" src="https://github.com/user-attachments/assets/8970321c-9a04-4260-83d5-dd4e0c79e3c1" />
 
 
 1. System Features
