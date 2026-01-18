@@ -6,7 +6,11 @@ Submitted video: 07_Webots_VNG_Assignment\video
 Submitted sourcecode: 07_Webots_VNG_Assignment\controllers\mavic2pro\mavic2pro.c 
 
 1.
-"To counteract the high-frequency sensor noise, I implemented a Simple Moving Average (SMA) filter using a circular buffer of size 15. This acts as a low-pass filter, attenuating the random noise spikes to reveal the underlying trend.
+- To counteract the high-frequency sensor noise, I implemented a Simple Moving Average (SMA) filter using a circular buffer of size 15. This acts as a low-pass filter, attenuating the random noise spikes to reveal the underlying trend.
+  
+- For the altitude stable, I only introduced a P gain controller, since the filter has filter the noise with small lag, my P controller start with big Kp (2.0) gain to encounter this lag (but this will also make the system jitter a little bit)
+  
+- Kp = 2.0 was only used for hovering the altitude above 0.5m. For lower 0.5m (when landing), I decreased the Kp to 0.5. This should make the system has delay in response, but for stable and soft landing, this would not making any drawback (the assignment did not mention on archieving the small rise time)
 
 2.
 The theoretical delay introduced by a Simple Moving Average filter is calculated as roughly half the window size times the timestep
@@ -19,13 +23,17 @@ Calculation: 14/2 * 8ms = 7*8ms =56ms
 Therefore, the system is reacting to the state of the drone approximately 56 milliseconds in the past."
 
 3.
-In normal case (with more time, I would use ziegler nicol method )
-but for this situation with limited timing resources, to handle this:
-Proportional (P): I reduced the P gain (from 3.0 to 2.0). A lower P gain makes the drone less reactive to the delayed signal, preventing it from chasing 'ghost' data.
-The lag in intial P vertical tunning was made by small changes in increasing Kp (start Kp with 0.1)
+The lag was accounted for in the tuning of the vertical controller parameters.
+
+In this specific C code, the vertical controller uses a Cubic Proportional logic (pow(alt_err, 3.0)) and does not utilize an explicit Derivative (D) term for altitude (unlike the horizontal position controller which uses k_pos_d).
+
+- Proportional (P) Adjustment: As mentioned, k_vertical_p was reduced to 2.0. While lowering P usually makes a system sluggish, the Cubic Error Curve (pow(3.0)) compensates for this. It provides very low gain for small errors (ignoring residual noise) but ramps up gain rapidly for larger errors. This allows the drone to be "gentle" near the target (stable despite lag) but still responsive enough to climb during takeoff.
+
+- Since there was no vertical D term to increase (which is the standard way to fight lag), the strategy relied entirely on dampening the response via the P-term and the cubic curve to tolerate the 56ms delay.
 
 4.
 I also created a full delivery system, with path generation, path tracking and return home functionality. you can check it out (you can choose any destination you want by adjusting destination point in dest_pt (for the given assignment, I set this to (0.0, 0.0, 0.2)
+
 Use source code controllers\mavic2pro\mavic2pro_backup.c for this task
 
 <img width="1697" height="809" alt="image" src="https://github.com/user-attachments/assets/28154a75-5945-4894-9383-6a0fa9808d7c" />
